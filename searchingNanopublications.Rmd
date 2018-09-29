@@ -3,6 +3,8 @@ title: "Searching Nanopubs"
 output: html_notebook
 ---
 
+# Searching on a Nanopublications Server
+
 The first step is to set up a search for the NanoPublications
 REST API. We use the `curl` library for that, and the `jsonlite`
 to process the JSON.
@@ -126,9 +128,10 @@ getNanoPubs <- function(seedIRI) {
 }
 ```
 
-Test:
+# Test
+
+An example is given here:
 
 ```{r}
 getNanoPubs("http://identifiers.org/entrez.gene/672")
 ```
-
