@@ -3,7 +3,7 @@ title: "Searching Nanopubs"
 output: html_notebook
 ---
 
-# Searching on a Nanopublications Server
+# Searching on a Nanopublications server
 
 The first step is to set up a search for the NanoPublications
 REST API. We use the `curl` library for that, and the `jsonlite`
@@ -12,8 +12,9 @@ to process the JSON.
 ```{r}
 library(curl)
 library(jsonlite)
-library(rrdf)
 ```
+
+## Accessing a Nanopublication server
 
 We also define where the REST API id found:
 
@@ -60,6 +61,8 @@ if (length(nanopubs) == 1) nanopubs = as.vector(nanopubs[[1]][[2]])
 cat(length(nanopubs))
 ```
 
+## Equivalent IRIs
+
 But we cannot know IRI scheme or even from which database gene identifiers are used in
 nanopublications. Therefore, we must use multiple IRIs for the same gene, and the BridgeDb
 Identifier Mapping Service (IMS) gives those to us:
@@ -67,16 +70,18 @@ Identifier Mapping Service (IMS) gives those to us:
 ```{r}
 mapUriService = "http://localhost:8081/QueryExpander/mapUri"
 
-h <- new_handle()
-handle_setopt(h, customrequest = "POST")
-handle_setform(h, Uri=gene, format="application/json")
-r <- curl_fetch_memory(mapUriService, h)
+h <- curl::new_handle()
+curl::handle_setopt(h, customrequest = "POST")
+curl::handle_setform(h, Uri=gene, format="application/json")
+r <- curl::curl_fetch_memory(mapUriService, h)
 jsonReply = rawToChar(r$content)
-data = fromJSON(jsonReply)
+data = jsonlite::fromJSON(jsonReply)
 mappings = length(data$Mapping$targetUri)
 cat(paste("Mappings found:", mappings, "\n"))
 data$Mapping$targetUri
 ```
+
+## A convenience methods
 
 For convenience, we define a function that will iterate over a list of IRIs to get nanopublications,
 based on the earlier used code:
@@ -87,51 +92,98 @@ getNanoPubs <- function(seedIRI) {
   
   # stuff for the identifier mapping
   mapUriService = "http://localhost:8081/QueryExpander/mapUri"
-  h <- new_handle()
-  handle_setopt(h, customrequest = "POST")
-  handle_setform(h, Uri=seedIRI, format="application/json")
+  h <- curl::new_handle()
+  curl::handle_setopt(h, customrequest = "POST")
+  curl::handle_setform(h, Uri=seedIRI, format="application/json")
   
   # stuff for the NP searching
   searchAPI = "http://grlc.io/api/peta-pico/nanopub-api/find_latest_nanopubs_with_uri"
-  npHandle <- new_handle()
-  handle_setopt(npHandle, customRequest="GET")
-  handle_setheaders(npHandle,
+  npServer = "http://graphdb.dumontierlab.com/repositories/nanopubs"
+  npHandle <- curl::new_handle()
+  curl::handle_setopt(npHandle, customRequest="GET")
+  curl::handle_setheaders(npHandle,
     "Accept" = "application/json"
   )
-  
+
   # first, look up equivalent IRIs
-  r <- curl_fetch_memory(mapUriService, h)
+  r <- curl::curl_fetch_memory(mapUriService, h)
   jsonReply = rawToChar(r$content)
-  data = fromJSON(jsonReply)
+  data = jsonlite::fromJSON(jsonReply)
   mappings = length(data$Mapping$targetUri)
   cat(paste("Mappings found:", mappings, "\n"))
   iris <- data$Mapping$targetUri
-  
+
   # next, look up each mapped IRI
+  directCount = 0
   for (iri in iris) {
     cat(paste("Processing:", iri, "... "))
-    r <- curl_fetch_memory(
-      paste(searchAPI, "?ref=", curl_escape(iri), sep=""), npHandle
+    queryURL = paste(searchAPI, "?ref=", curl_escape(iri),
+      "&endpoint=", curl::curl_escape(npServer), sep=""
     )
+    r <- curl::curl_fetch_memory(queryURL, npHandle)
+
     jsonReply = rawToChar(r$content)
-    data = fromJSON(jsonReply)
+    data = jsonlite::fromJSON(jsonReply)
     nanopubs = data$results$bindings
     if (length(nanopubs) == 0) nanopubs = as.vector(nanopubs)
     if (length(nanopubs) == 1) nanopubs = as.vector(nanopubs[[1]][[2]])
     if (length(nanopubs) > 0) {
       cat(paste(" nanopubs:", length(nanopubs)))
       collectedNanopubs = c(collectedNanopubs, nanopubs)
+      if (iri == seedIRI) {
+        directCount = length(nanopubs)
+      }
     }
     cat("\n")
   }
-  return(collectedNanopubs)
+  return(
+    list(
+      seedIRI=seedIRI,
+      mappings=iris,
+      directCount=directCount,
+      indirectCount=length(collectedNanopubs),
+      nanopubs=collectedNanopubs
+    )
+  )
 }
 ```
 
-# Test
+### Test
 
 An example is given here:
 
 ```{r}
-getNanoPubs("http://identifiers.org/entrez.gene/672")
+geneENSG000001658412 = getNanoPubs("http://identifiers.org/ensembl/ENSG00000165841")
 ```
+
+# Finding nanopublications for WP241
+
+First, list all gene IRIs from one of the popular pathways of WikiPathways:
+
+```{r}
+library(rrdf)
+
+wikipathwaysEP = "http://sparql.wikipathways.org/"
+geneQuery =  paste(
+  "PREFIX wp:      <http://vocabularies.wikipathways.org/wp#>",
+  "PREFIX xsd:     <http://www.w3.org/2001/XMLSchema#>",
+  "PREFIX dcterms: <http://purl.org/dc/terms/>",
+  "SELECT DISTINCT ?geneProduct WHERE {",
+  "  ?geneProduct a wp:GeneProduct .",
+  "  ?geneProduct dcterms:isPartOf/dcterms:identifier \"WP241\"^^xsd:string . ",
+  "}"
+)
+
+pathwayGenes = rrdf::sparql.remote(
+  wikipathwaysEP, geneQuery
+)
+```
+
+This returns about 28 unique gene IRIs, all using an IRI pattern for NCBI Gene identifier,
+e.g. http://identifiers.org/ncbigene/1719. We can iterate over them, and for each look up
+nanopublications:
+
+```{r}
+results = lapply(pathwayGenes, getNanoPubs)
+```
+
