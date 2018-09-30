@@ -61,15 +61,23 @@ if (length(nanopubs) == 1) nanopubs = as.vector(nanopubs[[1]][[2]])
 cat(length(nanopubs))
 ```
 
-## Equivalent IRIs
+## Equivalent IRIs with the BridgeDb Identifier Mapping Service
+
+Let's define the location of our local service. This can be at your personal
+computer or laptop, or a server on your local network. Instructions on how
+to start a local IMS can be found [here](https://github.com/BiGCAT-UM/BridgeDbVariantDatabase/blob/master/Local_BridgeDb_IMS_installation.md).
+
+```{r}
+mapUriService = "http://localhost:8081/QueryExpander/mapUri"
+# or a on a local network:
+mapUriService = "http://192.168.0.113:8081/QueryExpander/mapUri"
+```
 
 But we cannot know IRI scheme or even from which database gene identifiers are used in
 nanopublications. Therefore, we must use multiple IRIs for the same gene, and the BridgeDb
 Identifier Mapping Service (IMS) gives those to us:
 
 ```{r}
-mapUriService = "http://localhost:8081/QueryExpander/mapUri"
-
 h <- curl::new_handle()
 curl::handle_setopt(h, customrequest = "POST")
 curl::handle_setform(h, Uri=gene, format="application/json")
@@ -87,18 +95,19 @@ For convenience, we define a function that will iterate over a list of IRIs to g
 based on the earlier used code:
 
 ```{r}
-getNanoPubs <- function(seedIRI) {
+getNanoPubs <- function(seedIRI,
+  mapUriService = "http://192.168.0.113:8081/QueryExpander/mapUri",
+  searchAPI = "http://grlc.io/api/peta-pico/nanopub-api/find_latest_nanopubs_with_uri",
+  npServer = "http://graphdb.dumontierlab.com/repositories/nanopubs"
+) {
   collectedNanopubs = c()
   
   # stuff for the identifier mapping
-  mapUriService = "http://localhost:8081/QueryExpander/mapUri"
   h <- curl::new_handle()
   curl::handle_setopt(h, customrequest = "POST")
   curl::handle_setform(h, Uri=seedIRI, format="application/json")
   
   # stuff for the NP searching
-  searchAPI = "http://grlc.io/api/peta-pico/nanopub-api/find_latest_nanopubs_with_uri"
-  npServer = "http://graphdb.dumontierlab.com/repositories/nanopubs"
   npHandle <- curl::new_handle()
   curl::handle_setopt(npHandle, customRequest="GET")
   curl::handle_setheaders(npHandle,
@@ -196,8 +205,9 @@ counts = matrix(
     lapply(results, function(x) { c(x$directCount, x$indirectCount) } )
   ),
   ncol=2, byrow=TRUE
-) 
-extraGenes = counts[,2]-counts[,1]
+)
+colnames(counts) = c("direct", "indirect")
+extraGenes = counts[,"indirect"]-counts[,"direct"]
 ```
 
 Similarly, we can also take a pathways with predominantly Ensembl identifiers:
@@ -221,12 +231,44 @@ pathwayGenes = rrdf::sparql.remote(
 
 ```{r}
 results2 = lapply(pathwayGenes, getNanoPubs)
+```
 
-counts = matrix(
+```{r}
+counts2 = matrix(
   data=unlist(
     lapply(results2, function(x) { c(x$directCount, x$indirectCount) } )
   ),
   ncol=2, byrow=TRUE
-) 
-extraGenes2 = counts[,2]-counts[,1]
+)
+colnames(counts2) = c("direct", "indirect")
+extraGenes2 = counts2[,"indirect"]-counts2[,"direct"]
+```
+
+We now report some statistical characterizations of the results for the two pathways.
+
+First, we want to know how many equivalent IRIs were returned by the IMS:
+
+```{r}
+mappings = unlist(
+  lapply(results, function(x) { length(x$mappings) } )
+)
+summary(mappings)
+mappings2 = unlist(
+  lapply(results2, function(x) { length(x$mappings) } )
+)
+summary(mappings2)
+```
+
+Statistics for the direct hits for the two pathways are as follows:
+
+```{r}
+summary(counts[,"direct"])
+summary(counts2[,"direct"])
+```
+
+Statistics for the all hits for the two pathways after IRI mapping are as follows:
+
+```{r}
+summary(counts[,"indirect"])
+summary(counts2[,"indirect"])
 ```
