@@ -187,3 +187,46 @@ nanopublications:
 results = lapply(pathwayGenes, getNanoPubs)
 ```
 
+From these resulst we can see the number of additional nanopublications we get back,
+starting from the initial gene IRI:
+
+```{r}
+counts = matrix(
+  data=unlist(
+    lapply(results, function(x) { c(x$directCount, x$indirectCount) } )
+  ),
+  ncol=2, byrow=TRUE
+) 
+extraGenes = counts[,2]-counts[,1]
+```
+
+Similarly, we can also take a pathways with predominantly Ensembl identifiers:
+
+```{r}
+wikipathwaysEP = "http://sparql.wikipathways.org/"
+geneQuery =  paste(
+  "PREFIX wp:      <http://vocabularies.wikipathways.org/wp#>",
+  "PREFIX xsd:     <http://www.w3.org/2001/XMLSchema#>",
+  "PREFIX dcterms: <http://purl.org/dc/terms/>",
+  "SELECT DISTINCT ?geneProduct WHERE {",
+  "  ?geneProduct a wp:GeneProduct .",
+  "  ?geneProduct dcterms:isPartOf/dcterms:identifier \"WP2059\"^^xsd:string . ",
+  "}"
+)
+
+pathwayGenes = rrdf::sparql.remote(
+  wikipathwaysEP, geneQuery
+)
+```
+
+```{r}
+results2 = lapply(pathwayGenes, getNanoPubs)
+
+counts = matrix(
+  data=unlist(
+    lapply(results2, function(x) { c(x$directCount, x$indirectCount) } )
+  ),
+  ncol=2, byrow=TRUE
+) 
+extraGenes2 = counts[,2]-counts[,1]
+```
